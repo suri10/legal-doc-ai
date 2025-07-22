@@ -1,0 +1,15 @@
+# Ignore virtual environments
+legalenv/
+.venv/
+env/
+
+# Ignore Streamlit secrets
+.streamlit/secrets.toml
+
+# Ignore system files
+__pycache__/
+*.pyc
+
+# Ignore local environment
+.env
+
