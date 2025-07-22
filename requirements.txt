@@ -1,0 +1,8 @@
+
+streamlit
+openai
+groq
+pymupdf
+python-docx
+python-dotenv
+
