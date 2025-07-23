@@ -5,13 +5,20 @@ import os
 from dotenv import load_dotenv
 import openai
 
-# Use secrets if available (for Streamlit Cloud), else fallback to local .env
-openai.api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
+# Load environment variables if not on Streamlit Cloud
+load_dotenv()
+
+# Get Groq API key from Streamlit secrets or environment variable
+openai.api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+openai.base_url = "https://api.groq.com/openai/v1"  # Important override for Groq
 
 # UI
 st.set_page_config(page_title="Legal Document Summarizer & Clause Flagging", layout="wide")
 st.title("📄 Legal Document Analyzer")
-st.markdown("Upload a legal document (PDF, DOCX, or TXT), and this app will generate a clause-by-clause summary and flag risky clauses like **non-compete**, **indemnity**, etc.")
+st.markdown(
+    "Upload a legal document (PDF, DOCX, or TXT), and this app will generate a clause-by-clause summary "
+    "and flag risky clauses like **non-compete**, **indemnity**, etc."
+)
 
 uploaded_file = st.file_uploader("Upload a file", type=["pdf", "docx", "txt"])
 
@@ -43,7 +50,7 @@ Format the output like:
    **Risky**: Yes/No (keyword if any)
 """
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="llama3-70b-8192",  # Groq-compatible model
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3
     )

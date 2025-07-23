@@ -5,4 +5,6 @@ groq
 pymupdf
 python-docx
 python-dotenv
+openai>=1.0.0
+supabase
 
