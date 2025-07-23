@@ -3,24 +3,26 @@ import fitz  # PyMuPDF
 import docx
 import os
 from dotenv import load_dotenv
-import openai
+from supabase import create_client, Client
+import requests
 
-# Load environment variables if not on Streamlit Cloud
+# Load environment variables if running locally
 load_dotenv()
 
-# Get Groq API key from Streamlit secrets or environment variable
-openai.api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
-openai.base_url = "https://api.groq.com/openai/v1"  # Important override for Groq
+# Streamlit secrets fallback
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL"))
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
 
-# UI
+# Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# UI Setup
 st.set_page_config(page_title="Legal Document Summarizer & Clause Flagging", layout="wide")
 st.title("📄 Legal Document Analyzer")
-st.markdown(
-    "Upload a legal document (PDF, DOCX, or TXT), and this app will generate a clause-by-clause summary "
-    "and flag risky clauses like **non-compete**, **indemnity**, etc."
-)
+st.markdown("Upload one or more legal documents (PDF, DOCX, or TXT). This app will generate a clause-by-clause summary and flag risky clauses like **non-compete**, **indemnity**, etc.")
 
-uploaded_file = st.file_uploader("Upload a file", type=["pdf", "docx", "txt"])
+uploaded_files = st.file_uploader("Upload file(s)", type=["pdf", "docx", "txt"], accept_multiple_files=True)
 
 RISK_KEYWORDS = [
     "non-compete", "non compete", "indemnity", "termination", "jurisdiction",
@@ -35,30 +37,61 @@ def extract_text(file):
         return "\n".join([para.text for para in docx.Document(file).paragraphs])
     elif file.name.endswith(".txt"):
         return file.read().decode("utf-8")
-    else:
-        return ""
+    return ""
 
-def summarize_clauses(text):
-    prompt = f"""You are a legal assistant AI. Break the following legal document into numbered clauses. 
+def summarize_clauses_with_groq(text):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "mixtral-8x7b-32768",
+        "messages": [
+            {"role": "user", "content": f"""
+You are a legal assistant AI. Break the following legal document into numbered clauses. 
 For each clause:
 - Summarize it briefly.
 - Flag if it contains any of the following risk keywords: {', '.join(RISK_KEYWORDS)}.
+
 Document Text:
 {text}
+
 Format the output like:
 1. **Clause summary**: ...
    **Risky**: Yes/No (keyword if any)
-"""
-    response = openai.ChatCompletion.create(
-        model="llama3-70b-8192",  # Groq-compatible model
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
-    )
-    return response.choices[0].message.content.strip()
+"""}
+        ],
+        "temperature": 0.3
+    }
+    res = requests.post(url, headers=headers, json=payload)
+    return res.json()["choices"][0]["message"]["content"].strip()
 
-if uploaded_file:
-    with st.spinner("Reading and analyzing document..."):
-        full_text = extract_text(uploaded_file)
-        summary = summarize_clauses(full_text)
-        st.subheader("🧾 Summary and Clause Risk Flags")
-        st.markdown(summary)
+def store_in_supabase(filename, content, summary):
+    data = {
+        "filename": filename,
+        "content": content,
+        "summary": summary
+    }
+    response = supabase.table("summaries").insert(data).execute()
+    return response
+
+if uploaded_files:
+    for uploaded_file in uploaded_files:
+        with st.spinner(f"Analyzing: {uploaded_file.name}..."):
+            full_text = extract_text(uploaded_file)
+            summary = summarize_clauses_with_groq(full_text)
+
+            st.subheader(f"🧾 Summary for: {uploaded_file.name}")
+            st.markdown(summary)
+
+            # Store in Supabase
+            store_in_supabase(uploaded_file.name, full_text, summary)
+
+            # Download option
+            st.download_button(
+                label="Download Summary",
+                data=summary,
+                file_name=f"{uploaded_file.name}_summary.txt",
+                mime="text/plain"
+            )
